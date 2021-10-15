@@ -5,7 +5,8 @@ enum CampaignType {
     HALF_LIFE
 }
 
-struct HalfLifeEmissionParams {
+struct TokenEmissionParams {
+    uint256 maxReward;
     uint256 baseReward;
     uint256 hl;
 }
@@ -24,8 +25,10 @@ struct AppStorage {
     uint256 totalCampaigns;
     mapping(uint256=>Campaign) campaigns;
     // halflife emission fields
-    uint8 totalHalfLifeParams;
-    mapping(uint8=>HalfLifeEmissionParams) halfLifeEmissionParams;
+    uint8 totalTokenEmissionParams;
+    mapping(uint8=>TokenEmissionParams) tokenEmissionParams;
+    mapping(uint256=>uint256) totalMinted;
+    //
 }
 
 library LibAppStorage {

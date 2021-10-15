@@ -1,16 +1,28 @@
 // SPDX-License-Identifier: Unlicensed
 pragma solidity ^0.8.0;
 
+import {LibDiamond} from "./LibDiamond.sol";
 import {SafeMath} from "@openzeppelin/contracts/utils/math/SafeMath.sol";
-import {LibAppStorage, AppStorage, HalfLifeEmissionParams} from "./LibAppStorage.sol";
+import {LibAppStorage, AppStorage, TokenEmissionParams, Campaign} from "./LibAppStorage.sol";
 
 library LibHLCampaign {
     using SafeMath for uint256;
 
-    function getTnksRewardRate(uint256 _campaignId) public view returns (uint256) {
+    function addCampaign(Campaign memory _campaign) internal {
+        LibDiamond.enforceIsContractOwner();
+        AppStorage storage s = LibAppStorage.diamondStorage();
+        require(
+            _campaign.receiver != address(0),
+            "CAMPAIGN: receiver can't be 0 address"
+        );
+        s.campaigns[s.totalCampaigns] = _campaign;
+        s.totalCampaigns++;
+    }
+
+    function getTnksRewardRate(uint256 _campaignId) internal view returns (uint256) {
         AppStorage storage s = LibAppStorage.diamondStorage();
 
-        HalfLifeEmissionParams memory params = s.halfLifeEmissionParams[
+        TokenEmissionParams memory params = s.tokenEmissionParams[
             s.campaigns[_campaignId].campaignTypeParams
         ];
         uint256 delta = block.number - s.campaigns[_campaignId].startBlock;

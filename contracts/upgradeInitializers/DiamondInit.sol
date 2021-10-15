@@ -32,7 +32,7 @@ contract DiamondInit {
 
         s.tnksContract = _args.tnksContract;
         s.totalCampaigns = 0;
-        s.totalHalfLifeParams = 0;
+        s.totalTokenEmissionParams = 0;
     }
 
 
