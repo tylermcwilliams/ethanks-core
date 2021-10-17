@@ -8,10 +8,9 @@ contract EThanksERC20 is ERC20, Ownable {
     uint256 private _maxSupplyUnlockBlock;
     uint256 private _maxSupply;
     
-    constructor(address _diamondAddress) ERC20("EThanks", "TNKS") {
+    constructor() ERC20("EThanks", "TNKS") {
         _maxSupplyUnlockBlock = block.number + 28000 * 365 * 3;
         _maxSupply = 1000000000 * 10**decimals();
-        transferOwnership(_diamondAddress);
     }
     
     function decimals() public override pure returns(uint8){

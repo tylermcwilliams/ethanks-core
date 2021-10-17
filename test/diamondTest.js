@@ -7,10 +7,10 @@ const {
     findAddressPositionInFacets
 } = require('../scripts/libraries/diamond.js')
 
-const { deployDiamond } = require('../scripts/deploy.js')
-
 const { assert } = require('chai')
-const { BigNumber } = require('ethers')
+const { BigNumber } = require('ethers');
+const { deployments } = require('hardhat');
+const { deployMocks } = require('../scripts/deploy.js');
 
 const DAILY_BLOCKS = 5;
 const HALF_LIFE = DAILY_BLOCKS * 30;
@@ -19,88 +19,29 @@ const BASE_REWARD = BigNumber.from(33);
 
 describe('DiamondTest', async function () {
     let accounts
-    let ethanksERC20Address
-    let busdERC20Address
-    let diamondAddress
-    let diamondCutFacet
-    let diamondLoupeFacet
-    let ownershipFacet
-    let tx
-    let receipt
-    let result
-    const addresses = []
+
+    let ethanksDiamond;
+    let ethanksERC20;
+    let campaignFacet;
+    let busdERC20Mock;
+
+    let tx;
 
     before(async function () {
+        await deployments.fixture(['Tokens', 'Diamond'])
+
         accounts = await ethers.getSigners();
-        ({ diamondAddress, ethanksERC20Address, busdERC20Address } = await deployDiamond())
-        // = await ethers.getContractAt('EThanksERC20', ethanksERC20Address)
-        diamondCutFacet = await ethers.getContractAt('DiamondCutFacet', diamondAddress)
-        diamondLoupeFacet = await ethers.getContractAt('DiamondLoupeFacet', diamondAddress)
-        ownershipFacet = await ethers.getContractAt('OwnershipFacet', diamondAddress)
-    })
+        const ethanksDiamondAddress = (await deployments.get("Diamond")).address;
+        const ethanksERC20Address = (await deployments.get("EThanksERC20")).address;
 
-    it('should have three facets -- call to facetAddresses function', async () => {
-        for (const address of await diamondLoupeFacet.facetAddresses()) {
-            addresses.push(address)
-        }
+        ethanksDiamond = await ethers.getContractAt("Diamond", ethanksDiamondAddress);
+        ethanksERC20 = await ethers.getContractAt("EThanksERC20", ethanksERC20Address);
+        campaignFacet = await ethers.getContractAt("CampaignFacet", ethanksDiamondAddress);
 
-        assert.equal(addresses.length, 3)
-    })
-
-    it('facets should have the right function selectors -- call to facetFunctionSelectors function', async () => {
-        let selectors = getSelectors(diamondCutFacet)
-        result = await diamondLoupeFacet.facetFunctionSelectors(addresses[0])
-        assert.sameMembers(result, selectors)
-        selectors = getSelectors(diamondLoupeFacet)
-        result = await diamondLoupeFacet.facetFunctionSelectors(addresses[1])
-        assert.sameMembers(result, selectors)
-        selectors = getSelectors(ownershipFacet)
-        result = await diamondLoupeFacet.facetFunctionSelectors(addresses[2])
-        assert.sameMembers(result, selectors)
-    })
-
-    it('selectors should be associated to facets correctly -- multiple calls to facetAddress function', async () => {
-        assert.equal(
-            addresses[0],
-            await diamondLoupeFacet.facetAddress('0x1f931c1c')
-        )
-        assert.equal(
-            addresses[1],
-            await diamondLoupeFacet.facetAddress('0xcdffacc6')
-        )
-        assert.equal(
-            addresses[1],
-            await diamondLoupeFacet.facetAddress('0x01ffc9a7')
-        )
-        assert.equal(
-            addresses[2],
-            await diamondLoupeFacet.facetAddress('0xf2fde38b')
-        )
-    })
-
-    it('should add campaign functions', async () => {
-        const CampaignFacet = await ethers.getContractFactory('CampaignFacet')
-        const campaignFacet = await CampaignFacet.deploy()
-        await campaignFacet.deployed()
-        addresses.push(campaignFacet.address)
-        const selectors = getSelectors(campaignFacet)
-        tx = await diamondCutFacet.diamondCut(
-            [{
-                facetAddress: campaignFacet.address,
-                action: FacetCutAction.Add,
-                functionSelectors: selectors
-            }],
-            ethers.constants.AddressZero, '0x', { gasLimit: 800000 })
-        receipt = await tx.wait()
-        if (!receipt.status) {
-            throw Error(`Diamond upgrade failed: ${tx.hash}`)
-        }
-        result = await diamondLoupeFacet.facetFunctionSelectors(campaignFacet.address)
-        assert.sameMembers(result, selectors)
+        ({busdERC20:busdERC20Mock} = await deployMocks());
     })
 
     it('should add half life paramaters', async () => {
-        const campaignFacet = await ethers.getContractAt('CampaignFacet', diamondAddress)
         const _hl = HALF_LIFE;
         tx = await campaignFacet.addTnksEmissionParams(MAX_REWARD, BASE_REWARD, _hl);
         const totalParams = await campaignFacet.getTotalTnksEmissionParams();
@@ -110,13 +51,12 @@ describe('DiamondTest', async function () {
     })
 
     it('should add campaign', async () => {
-        const campaignFacet = await ethers.getContractAt('CampaignFacet', diamondAddress)
         const paramsId = 0
         const duration = DAILY_BLOCKS * 365
         const receiver = accounts[1].address
         await campaignFacet.addHLCampaign(
             paramsId,
-            busdERC20Address,
+            busdERC20Mock.address,
             duration,
             receiver
         );
@@ -131,15 +71,12 @@ describe('DiamondTest', async function () {
     })
 
     it('should receive expected tnks', async () => {
-        const campaignFacet = await ethers.getContractAt('CampaignFacet', diamondAddress)
-        const ethanks = await ethers.getContractAt('ERC20Token', ethanksERC20Address)
-        const busd = await ethers.getContractAt('ERC20Token', busdERC20Address)
         let donation = BigNumber.from(10).pow(18).mul(1000)
 
-        await busd.increaseAllowance(diamondAddress, donation)
+        await busdERC20Mock.increaseAllowance(ethanksDiamond.address, donation)
         await campaignFacet.donateToHalfLifeCampaign(0, donation)
 
-        let tnksBal = await ethanks.balanceOf(accounts[0].address)
+        let tnksBal = await ethanksERC20.balanceOf(accounts[0].address)
         let expectedReward = await campaignFacet.getExpectedTnksReward(0, donation)
         assert.equal(tnksBal.toString(), expectedReward.toString())
 
@@ -147,23 +84,22 @@ describe('DiamondTest', async function () {
         const campaign = await campaignFacet.getCampaign(0)
         const ff = campaign.startBlock.add(HALF_LIFE);
         let blockNumber = await ethers.provider.getBlockNumber()
-        while(ff.gt(blockNumber)) {
+        while (ff.gt(blockNumber)) {
             await ethers.provider.send("evm_mine")
             blockNumber = await ethers.provider.getBlockNumber()
         }
 
-        await busd.increaseAllowance(diamondAddress, donation)
+        await busdERC20Mock.increaseAllowance(ethanksDiamond.address, donation)
         await campaignFacet.donateToHalfLifeCampaign(0, donation)
 
-        tnksBal = (await ethanks.balanceOf(accounts[0].address))
+        tnksBal = (await ethanksERC20.balanceOf(accounts[0].address))
         expectedReward = await campaignFacet.getExpectedTnksReward(0, donation)
     })
 
-    it("reverts if over max",async ()=>{
-        const campaignFacet = await ethers.getContractAt('CampaignFacet', diamondAddress)
+    it("reverts if over max", async () => {
         try {
             await campaignFacet.donateToHalfLifeCampaign(0, MAX_REWARD);
-        } catch(e) {
+        } catch (e) {
             reverted = true;
         }
         assert(reverted)
