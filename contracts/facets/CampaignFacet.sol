@@ -2,7 +2,7 @@
 pragma solidity ^0.8.0;
 
 import {AppStorage, Campaign, CampaignType, TokenEmissionParams} from "../libraries/LibAppStorage.sol";
-import {LibHLCampaign} from "../libraries/LibHLCampaigns.sol";
+import {LibTnksCampaigns} from "../libraries/LibTnksCampaigns.sol";
 import {LibERC20} from "../libraries/LibERC20.sol";
 import {LibDiamond} from "../libraries/LibDiamond.sol";
 
@@ -27,15 +27,15 @@ contract CampaignFacet {
 
     //event EditTypeParams(CampaignType campaignType, uint8 paramsId);
 
-    function getHLCampaignRate(uint256 _campaignId)
+    function getExpectedTnksReward(uint256 _campaignId, uint256 _amount)
         external
         view
         returns (uint256)
     {
-        return LibHLCampaign.getTnksRewardRate(_campaignId);
+        return LibTnksCampaigns.getExpectedTnksReward(_campaignId, _amount);
     }
 
-    function getHLTotalMinted(uint256 _campaignId)
+    function getTotalMintedTnks(uint256 _campaignId)
         external
         view
         returns (uint256)
@@ -43,11 +43,11 @@ contract CampaignFacet {
         return s.totalMinted[_campaignId];
     }
 
-    function getHLParamsTotal() external view returns (uint8) {
+    function getTotalTnksEmissionParams() external view returns (uint8) {
         return s.totalTokenEmissionParams;
     }
 
-    function getHLParams(uint8 _paramsId)
+    function getTnksEmissionParams(uint8 _paramsId)
         external
         view
         returns (TokenEmissionParams memory params_)
@@ -57,7 +57,7 @@ contract CampaignFacet {
         params_.hl = s.tokenEmissionParams[_paramsId].hl;
     }
 
-    function addHLParams(
+    function addTnksEmissionParams(
         uint256 _maxReward,
         uint256 _baseReward,
         uint256 _hl
@@ -91,7 +91,7 @@ contract CampaignFacet {
             block.number,
             _blocksDuration
         );
-        LibHLCampaign.addCampaign(campaign);
+        LibTnksCampaigns.addCampaign(campaign);
 
         emit NewCampaign(s.totalCampaigns - 1, campaign);
     }
@@ -139,25 +139,32 @@ contract CampaignFacet {
     function donateToHalfLifeCampaign(uint256 _campaignId, uint256 _amount)
         external
     {
+        Campaign memory campaign = s.campaigns[_campaignId];
         require(_amount > 0, "CAMPAIGN: Donation can't be 0");
         require(
             s.totalCampaigns > _campaignId,
             "CAMPAIGN: Invalid campaign id"
         );
         require(
-            s.campaigns[_campaignId].campaignType == CampaignType.HALF_LIFE,
+            campaign.campaignType == CampaignType.HALF_LIFE,
             "CAMPAIGN: Wrong donation method"
         );
         uint256 maxReward = s
-            .tokenEmissionParams[s.campaigns[_campaignId].campaignTypeParams]
+            .tokenEmissionParams[campaign.campaignTypeParams]
             .maxReward;
-        uint256 reward = LibHLCampaign.getTnksRewardRate(_campaignId) * _amount;
+        uint256 reward = LibTnksCampaigns.getExpectedTnksReward(_campaignId, _amount);
         require(
             maxReward >= s.totalMinted[_campaignId] + reward,
             "CAMPAIGN: Over the possible reward"
         );
         EThanksERC20(s.tnksContract).mint(msg.sender, reward);
         s.totalMinted[_campaignId] += reward;
+        LibERC20.transferFrom(
+            campaign.acceptedToken,
+            msg.sender,
+            address(this),
+            _amount
+        );
 
         emit Donation(msg.sender, _campaignId, s.tnksContract, _amount, reward);
     }

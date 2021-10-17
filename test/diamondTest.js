@@ -12,9 +12,9 @@ const { deployDiamond } = require('../scripts/deploy.js')
 const { assert } = require('chai')
 const { BigNumber } = require('ethers')
 
-const DAILY_BLOCKS = 1;
-const HALF_LIFE = DAILY_BLOCKS * 35;
-const MAX_REWARD = BigNumber.from(10).pow(9).mul(50000);
+const DAILY_BLOCKS = 5;
+const HALF_LIFE = DAILY_BLOCKS * 30;
+const MAX_REWARD = BigNumber.from(10).pow(18).mul(50000);
 const BASE_REWARD = BigNumber.from(33);
 
 describe('DiamondTest', async function () {
@@ -102,9 +102,9 @@ describe('DiamondTest', async function () {
     it('should add half life paramaters', async () => {
         const campaignFacet = await ethers.getContractAt('CampaignFacet', diamondAddress)
         const _hl = HALF_LIFE;
-        tx = await campaignFacet.addHLParams(MAX_REWARD, BASE_REWARD, _hl);
-        const totalParams = await campaignFacet.getHLParamsTotal();
-        const { baseReward, hl } = await campaignFacet.getHLParams(totalParams - 1);
+        tx = await campaignFacet.addTnksEmissionParams(MAX_REWARD, BASE_REWARD, _hl);
+        const totalParams = await campaignFacet.getTotalTnksEmissionParams();
+        const { baseReward, hl } = await campaignFacet.getTnksEmissionParams(totalParams - 1);
         assert.equal(baseReward.toString(), BASE_REWARD.toString())
         assert.equal(hl.toString(), _hl.toString())
     })
@@ -122,7 +122,6 @@ describe('DiamondTest', async function () {
         );
         const firstCampaign = await campaignFacet.getCampaign(0);
         const currentBlock = await ethers.provider.getBlockNumber();
-        console.info(firstCampaign)
         assert.equal(firstCampaign.campaignType, 0)
         assert.equal(firstCampaign.campaignTypeParams, paramsId)
         assert.equal(firstCampaign.receiver, receiver)
@@ -135,39 +134,35 @@ describe('DiamondTest', async function () {
         const campaignFacet = await ethers.getContractAt('CampaignFacet', diamondAddress)
         const ethanks = await ethers.getContractAt('ERC20Token', ethanksERC20Address)
         const busd = await ethers.getContractAt('ERC20Token', busdERC20Address)
-        let donation = 1000
+        let donation = BigNumber.from(10).pow(18).mul(1000)
+
         await busd.increaseAllowance(diamondAddress, donation)
         await campaignFacet.donateToHalfLifeCampaign(0, donation)
-        let rate = await campaignFacet.getHLCampaignRate(0)
+
         let tnksBal = await ethanks.balanceOf(accounts[0].address)
-        assert.equal(tnksBal.toString(), rate.mul(donation).toString())
+        let expectedReward = await campaignFacet.getExpectedTnksReward(0, donation)
+        assert.equal(tnksBal.toString(), expectedReward.toString())
 
         // FF campaign's hl worth of blocks
         const campaign = await campaignFacet.getCampaign(0)
-        const hlParams = await campaignFacet.getHLParams(campaign.campaignTypeParams)
         const ff = campaign.startBlock.add(HALF_LIFE);
         let blockNumber = await ethers.provider.getBlockNumber()
-        for (let x = 0; ff.gt(blockNumber); x++) {
+        while(ff.gt(blockNumber)) {
             await ethers.provider.send("evm_mine")
             blockNumber = await ethers.provider.getBlockNumber()
         }
-        rate = await campaignFacet.getHLCampaignRate(0)
-        assert.equal(rate.toString(), hlParams.baseReward.div(2).toString())
+
+        await busd.increaseAllowance(diamondAddress, donation)
+        await campaignFacet.donateToHalfLifeCampaign(0, donation)
+
+        tnksBal = (await ethanks.balanceOf(accounts[0].address))
+        expectedReward = await campaignFacet.getExpectedTnksReward(0, donation)
     })
 
     it("reverts if over max",async ()=>{
         const campaignFacet = await ethers.getContractAt('CampaignFacet', diamondAddress)
-        const busd = await ethers.getContractAt('ERC20Token', busdERC20Address)
-        const totalMinted = await campaignFacet.getHLTotalMinted(0);
-        const hlParams = await campaignFacet.getHLParams(0)
-        const rate = await campaignFacet.getHLCampaignRate(0)
-        const donationToMax = hlParams.maxReward.sub(totalMinted).div(rate);
-        await busd.increaseAllowance(diamondAddress, donationToMax.mul(2));
-        await campaignFacet.donateToHalfLifeCampaign(0, donationToMax);
- 
-        let reverted;
         try {
-            await campaignFacet.donateToHalfLifeCampaign(0, donationToMax);
+            await campaignFacet.donateToHalfLifeCampaign(0, MAX_REWARD);
         } catch(e) {
             reverted = true;
         }
